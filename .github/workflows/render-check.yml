@@ -1,0 +1,26 @@
+name: Render check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  render-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Render API access
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RENDER_API_KEY:-}" ]; then
+            echo "RENDER_API_KEY is not configured"
+            exit 1
+          fi
+          response=$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services?limit=20")
+          echo "Render API authentication succeeded."
+          echo "$response" | python -c 'import json,sys; data=json.load(sys.stdin); print("Services visible to this key:", len(data.get("services", [])))'
