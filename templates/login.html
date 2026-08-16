@@ -10,6 +10,7 @@
   <h1>Вход</h1>
   {% if error %}<p>{{ error }}</p>{% endif %}
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
     <label>Имя пользователя <input name="username" maxlength="80" required autofocus></label>
     <label>Пароль <input name="password" type="password" required></label>
     <button type="submit">Войти</button>
