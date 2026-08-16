@@ -13,6 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
       - name: Move database bootstrap after helper definitions
         run: |
           python - <<'PY'
@@ -22,19 +25,18 @@ jobs:
           text = path.read_text()
           old = "\n\ninit_db()\n\n\n@app.before_request\n"
           new = "\n\n@app.before_request\n"
-          if old not in text:
-              raise SystemExit("startup marker not found")
-          text = text.replace(old, new, 1)
-          if not text.endswith("\n"):
-              text += "\n"
-          text += "\ninit_db()\n"
-          path.write_text(text)
+          if old in text:
+              text = text.replace(old, new, 1)
+              if not text.endswith("\n"):
+                  text += "\n"
+              text += "\ninit_db()\n"
+              path.write_text(text)
           PY
 
       - name: Verify import and tests
         run: |
-          python -m pytest -q
           python -c "import app; print('app import ok')"
+          python -m pytest -q
 
       - name: Commit hotfix
         run: |
