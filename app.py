@@ -68,9 +68,7 @@ def ensure_csrf_token():
 def validate_csrf():
     token = request.form.get("csrf_token", "")
     expected = session.get("csrf_token")
-    if not expected or not secrets.compare_digest(token, expected):
-        return False
-    return True
+    return bool(expected and token and secrets.compare_digest(token, expected))
 
 
 def login_required(view):
@@ -85,6 +83,10 @@ def login_required(view):
 
 def current_user_id():
     return int(session["user_id"])
+
+
+def user_task(db: Session, task_id: int):
+    return db.scalar(select(Task).where(Task.id == task_id, Task.user_id == current_user_id()))
 
 
 @app.get("/")
@@ -169,13 +171,29 @@ def create_task():
     return redirect(url_for("index"))
 
 
+@app.post("/tasks/<int:task_id>/edit")
+@login_required
+def edit_task(task_id):
+    if not validate_csrf():
+        return "Invalid CSRF token", 400
+    title = request.form.get("title", "").strip()
+    if not title or len(title) > 500:
+        return redirect(url_for("index"))
+    with Session(engine) as db:
+        task = user_task(db, task_id)
+        if task is not None:
+            task.title = title
+            db.commit()
+    return redirect(url_for("index"))
+
+
 @app.post("/tasks/<int:task_id>/toggle")
 @login_required
 def toggle_task(task_id):
     if not validate_csrf():
         return "Invalid CSRF token", 400
     with Session(engine) as db:
-        task = db.scalar(select(Task).where(Task.id == task_id, Task.user_id == current_user_id()))
+        task = user_task(db, task_id)
         if task is not None:
             task.done = not task.done
             db.commit()
@@ -188,7 +206,7 @@ def delete_task(task_id):
     if not validate_csrf():
         return "Invalid CSRF token", 400
     with Session(engine) as db:
-        task = db.scalar(select(Task).where(Task.id == task_id, Task.user_id == current_user_id()))
+        task = user_task(db, task_id)
         if task is not None:
             db.delete(task)
             db.commit()
