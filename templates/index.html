@@ -14,11 +14,13 @@
     button { padding: 10px 14px; border: 0; border-radius: 8px; cursor: pointer; }
     .add button { background: #222; color: white; }
     ul { list-style: none; padding: 0; margin: 0; }
-    li { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #eee; }
+    li { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #eee; flex-wrap: wrap; }
     li:last-child { border-bottom: 0; }
-    .title { flex: 1; }
+    .title { flex: 1; min-width: 180px; }
     .done .title { text-decoration: line-through; opacity: .5; }
     .actions { display: flex; gap: 6px; }
+    .edit-form { flex: 1 1 100%; display: none; gap: 8px; }
+    .edit-form.visible { display: flex; }
     .empty { color: #777; text-align: center; padding: 24px 0; }
   </style>
 </head>
@@ -49,9 +51,15 @@
         <button type="submit" aria-label="Изменить статус">{{ '☑' if task.done else '☐' }}</button>
       </form>
       <span class="title">{{ task.title }}</span>
+      <button type="button" onclick="document.getElementById('edit-{{ task.id }}').classList.toggle('visible')">Изменить</button>
       <form class="actions" method="post" action="{{ url_for('delete_task', task_id=task.id) }}">
         <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
         <button type="submit" aria-label="Удалить задачу">Удалить</button>
+      </form>
+      <form class="edit-form" id="edit-{{ task.id }}" method="post" action="{{ url_for('edit_task', task_id=task.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+        <input name="title" value="{{ task.title }}" maxlength="500" required aria-label="Новое название задачи">
+        <button type="submit">Сохранить</button>
       </form>
     </li>
     {% endfor %}
