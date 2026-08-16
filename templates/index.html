@@ -7,6 +7,7 @@
   <style>
     body { font-family: system-ui, sans-serif; max-width: 720px; margin: 48px auto; padding: 0 20px; background: #f6f7f9; color: #222; }
     main { background: white; padding: 28px; border-radius: 16px; box-shadow: 0 4px 24px #00000012; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
     h1 { margin-top: 0; }
     form.add { display: flex; gap: 8px; margin-bottom: 24px; }
     input { flex: 1; padding: 11px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
@@ -23,8 +24,18 @@
 </head>
 <body>
 <main>
-  <h1>Мои задачи</h1>
+  <header>
+    <h1>Мои задачи</h1>
+    <div>
+      <span>{{ username }}</span>
+      <form method="post" action="{{ url_for('logout') }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+        <button type="submit">Выйти</button>
+      </form>
+    </div>
+  </header>
   <form class="add" method="post" action="{{ url_for('create_task') }}">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
     <input name="title" placeholder="Например: купить молоко" maxlength="200" required autofocus>
     <button type="submit">Добавить</button>
   </form>
@@ -32,12 +43,14 @@
   {% if tasks %}
   <ul>
     {% for task in tasks %}
-    <li class="{{ 'done' if task['done'] else '' }}">
-      <form method="post" action="{{ url_for('toggle_task', task_id=task['id']) }}">
-        <button type="submit" aria-label="Изменить статус">{{ '☑' if task['done'] else '☐' }}</button>
+    <li class="{{ 'done' if task.done else '' }}">
+      <form method="post" action="{{ url_for('toggle_task', task_id=task.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+        <button type="submit" aria-label="Изменить статус">{{ '☑' if task.done else '☐' }}</button>
       </form>
-      <span class="title">{{ task['title'] }}</span>
-      <form class="actions" method="post" action="{{ url_for('delete_task', task_id=task['id']) }}">
+      <span class="title">{{ task.title }}</span>
+      <form class="actions" method="post" action="{{ url_for('delete_task', task_id=task.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
         <button type="submit" aria-label="Удалить задачу">Удалить</button>
       </form>
     </li>
