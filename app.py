@@ -83,30 +83,7 @@ def init_db():
     with Session(engine) as db:
         users = db.scalars(select(User)).all()
         for user in users:
-            personal = db.scalar(
-                select(Project)
-                .where(Project.owner_id == user.id, Project.name == "Личное")
-                .order_by(Project.id)
-            )
-            if personal is None:
-                personal = Project(name="Личное", owner_id=user.id)
-                db.add(personal)
-                db.flush()
-            membership = db.scalar(
-                select(ProjectMember).where(
-                    ProjectMember.project_id == personal.id,
-                    ProjectMember.user_id == user.id,
-                )
-            )
-            if membership is None:
-                db.add(ProjectMember(project_id=personal.id, user_id=user.id, role="owner"))
-            db.execute(
-                text(
-                    "UPDATE tasks SET project_id = :project_id "
-                    "WHERE user_id = :user_id AND project_id IS NULL"
-                ),
-                {"project_id": personal.id, "user_id": user.id},
-            )
+            ensure_personal_project(db, user.id)
         db.commit()
 
 
@@ -139,6 +116,34 @@ def current_user_id():
     return int(session["user_id"])
 
 
+def ensure_personal_project(db: Session, user_id: int):
+    personal = db.scalar(
+        select(Project)
+        .where(Project.owner_id == user_id, Project.name == "Личное")
+        .order_by(Project.id)
+    )
+    if personal is None:
+        personal = Project(name="Личное", owner_id=user_id)
+        db.add(personal)
+        db.flush()
+    membership = db.scalar(
+        select(ProjectMember).where(
+            ProjectMember.project_id == personal.id,
+            ProjectMember.user_id == user_id,
+        )
+    )
+    if membership is None:
+        db.add(ProjectMember(project_id=personal.id, user_id=user_id, role="owner"))
+    db.execute(
+        text(
+            "UPDATE tasks SET project_id = :project_id "
+            "WHERE user_id = :user_id AND project_id IS NULL"
+        ),
+        {"project_id": personal.id, "user_id": user_id},
+    )
+    return personal
+
+
 def current_membership(db: Session, project_id: int | None):
     if project_id is None:
         return None
@@ -159,9 +164,12 @@ def ensure_selected_project(db: Session):
         .where(ProjectMember.user_id == current_user_id())
         .order_by(ProjectMember.project_id)
     )
-    if project_id is not None:
-        session["project_id"] = int(project_id)
-    return int(project_id) if project_id is not None else None
+    if project_id is None:
+        personal = ensure_personal_project(db, current_user_id())
+        db.commit()
+        project_id = personal.id
+    session["project_id"] = int(project_id)
+    return int(project_id)
 
 
 def accessible_projects(db: Session):
@@ -175,13 +183,9 @@ def accessible_projects(db: Session):
 
 def task_in_current_project(db: Session, task_id: int):
     project_id = ensure_selected_project(db)
-    if project_id is None:
-        return None
     if current_membership(db, project_id) is None:
         return None
-    return db.scalar(
-        select(Task).where(Task.id == task_id, Task.project_id == project_id)
-    )
+    return db.scalar(select(Task).where(Task.id == task_id, Task.project_id == project_id))
 
 
 @app.get("/")
@@ -242,7 +246,10 @@ def register():
                 if existing is not None:
                     error = "Такой пользователь уже существует."
                 else:
-                    db.add(User(username=username, password_hash=generate_password_hash(password)))
+                    user = User(username=username, password_hash=generate_password_hash(password))
+                    db.add(user)
+                    db.flush()
+                    ensure_personal_project(db, user.id)
                     db.commit()
                     return redirect(url_for("login"))
     return render_template("register.html", error=error)
@@ -402,8 +409,6 @@ def create_task():
         return redirect(url_for("index"))
     with Session(engine) as db:
         project_id = ensure_selected_project(db)
-        if project_id is None:
-            return redirect(url_for("index"))
         db.add(Task(title=title, user_id=current_user_id(), project_id=project_id))
         db.commit()
     return redirect(url_for("index"))
@@ -456,7 +461,7 @@ def delete_task(task_id):
 def counter():
     with Session(engine) as db:
         project_id = ensure_selected_project(db)
-        count = db.scalar(select(func.count()).select_from(Task).where(Task.project_id == project_id)) if project_id else 0
+        count = db.scalar(select(func.count()).select_from(Task).where(Task.project_id == project_id))
     return jsonify(count=count)
 
 
