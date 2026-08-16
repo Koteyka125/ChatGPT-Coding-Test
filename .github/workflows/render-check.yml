@@ -9,7 +9,7 @@ jobs:
   render-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect Render services and latest deploys
+      - name: Inspect Render service, deploys, and logs
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
@@ -22,45 +22,62 @@ jobs:
 
           auth_header="Authorization: Bearer ${RENDER_API_KEY}"
           services=$(curl --fail-with-body --silent --show-error \
-            -H "$auth_header" \
-            -H "Accept: application/json" \
+            -H "$auth_header" -H "Accept: application/json" \
             "https://api.render.com/v1/services?limit=20")
 
           echo "Render API authentication succeeded."
-          echo "Services visible to this key:"
-          echo "$services" | python -c '
-import json, sys
-items = json.load(sys.stdin)
-for item in items if isinstance(items, list) else items.get("services", []):
-    service = item.get("service", item) if isinstance(item, dict) else {}
-    print(f"- {service.get(\"name\", \"<unnamed>\")} | id={service.get(\"id\", \"<unknown>\")} | type={service.get(\"type\", \"<unknown>\")}")
-'
-
           service_id=$(echo "$services" | python -c '
-import json, sys
-items = json.load(sys.stdin)
-for item in items if isinstance(items, list) else items.get("services", []):
-    service = item.get("service", item) if isinstance(item, dict) else {}
-    if service.get("name") == "chatgpt-coding-test":
-        print(service["id"])
-        break
-else:
-    raise SystemExit("chatgpt-coding-test service was not found")
+import json,sys
+items=json.load(sys.stdin)
+for item in items if isinstance(items,list) else items.get("services",[]):
+    s=item.get("service",item) if isinstance(item,dict) else {}
+    if s.get("name")=="chatgpt-coding-test":
+        print(s["id"]); break
+else: raise SystemExit("chatgpt-coding-test service was not found")
 ')
-
-          echo ""
           echo "Target service: $service_id"
 
           deploys=$(curl --fail-with-body --silent --show-error \
-            -H "$auth_header" \
-            -H "Accept: application/json" \
+            -H "$auth_header" -H "Accept: application/json" \
             "https://api.render.com/v1/services/${service_id}/deploys?limit=5")
 
           echo "Latest deploys:"
           echo "$deploys" | python -c '
-import json, sys
-items = json.load(sys.stdin)
-for item in items if isinstance(items, list) else items.get("deploys", []):
-    deploy = item.get("deploy", item) if isinstance(item, dict) else {}
-    print(f"- id={deploy.get(\"id\", \"<unknown>\")} | status={deploy.get(\"status\", \"<unknown>\")} | commit={deploy.get(\"commit\", {}).get(\"id\", \"<unknown>\") if isinstance(deploy.get(\"commit\"), dict) else deploy.get(\"commit\", \"<unknown>\")}")
-'
+import json,sys
+items=json.load(sys.stdin)
+for item in items if isinstance(items,list) else items.get("deploys",[]):
+    d=item.get("deploy",item) if isinstance(item,dict) else {}
+    c=d.get("commit")
+    cid=c.get("id") if isinstance(c,dict) else c
+    print(f"- id={d.get(\"id\",\"<unknown>\")} | status={d.get(\"status\",\"<unknown>\")} | commit={cid or \"<unknown>\"}")
+')
+
+          latest_id=$(echo "$deploys" | python -c '
+import json,sys
+items=json.load(sys.stdin)
+items=items if isinstance(items,list) else items.get("deploys",[])
+for item in items:
+    d=item.get("deploy",item) if isinstance(item,dict) else {}
+    if d.get("id"):
+        print(d["id"]); break
+else: raise SystemExit("No deploy found")
+')
+
+          echo "Latest deploy ID: $latest_id"
+          echo "Fetching recent Render logs..."
+
+          logs=$(curl --fail-with-body --silent --show-error \
+            -G -H "$auth_header" -H "Accept: application/json" \
+            --data-urlencode "resource=${service_id}" \
+            --data-urlencode "limit=50" \
+            "https://api.render.com/v1/logs")
+
+          echo "Recent logs (last 50 records returned by Render):"
+          echo "$logs" | python -c '
+import json,sys
+x=json.load(sys.stdin)
+items=x if isinstance(x,list) else x.get("logs",x.get("items",[]))
+for item in items[-50:]:
+    if isinstance(item,dict): print(item.get("timestamp","") , item.get("message",item.get("text",str(item))))
+    else: print(item)
+' | tail -50
