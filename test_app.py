@@ -209,3 +209,41 @@ def test_invalid_status_defaults_to_all(client):
     post_with_csrf(client, "/tasks", data={"title": "One"})
     response = client.get("/?status=unknown")
     assert "One" in response.text
+
+def test_create_project_and_switch(client):
+    register_and_login(client)
+    response = post_with_csrf(client, "/projects", data={"name": "Work"}, follow_redirects=True)
+    assert response.status_code == 200
+    assert "Work" in response.text
+    post_with_csrf(client, "/tasks", data={"title": "Work task"})
+    import app as app_module
+    with Session(app_module.engine) as db:
+        work = db.scalar(select(app_module.Project).where(app_module.Project.name == "Work"))
+        assert work is not None
+        work_id = work.id
+    post_with_csrf(client, f"/projects/{work_id}/select")
+    response = client.get("/")
+    assert "Work task" in response.text
+
+def test_personal_project_is_created_for_new_users(client):
+    register_and_login(client, "alice")
+    assert "Личное" in client.get("/").text
+    import app as app_module
+    with Session(app_module.engine) as db:
+        user = db.scalar(select(app_module.User).where(app_module.User.username == "alice"))
+        membership = db.scalar(select(app_module.ProjectMember).where(app_module.ProjectMember.user_id == user.id))
+        assert membership.role == "owner"
+
+def test_owner_can_invite_existing_user(client):
+    register_and_login(client, "alice")
+    post_with_csrf(client, "/projects", data={"name": "Team"})
+    logout(client)
+    register_and_login(client, "bob")
+    logout(client)
+    register_and_login(client, "alice")
+    response = client.post("/projects/2/invite", data={"csrf_token": csrf_token(client), "username": "bob"})
+    assert response.status_code == 302
+    logout(client)
+    register_and_login(client, "bob")
+    response = client.get("/invitations")
+    assert "Team" in response.text
