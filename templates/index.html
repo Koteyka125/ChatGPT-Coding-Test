@@ -9,10 +9,12 @@
     main { background: white; padding: 28px; border-radius: 16px; box-shadow: 0 4px 24px #00000012; }
     header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
     h1 { margin-top: 0; }
-    form.add { display: flex; gap: 8px; margin-bottom: 24px; }
+    form.add, form.filters { display: flex; gap: 8px; margin-bottom: 16px; }
+    form.filters { align-items: center; flex-wrap: wrap; }
     input { flex: 1; padding: 11px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
+    select { padding: 11px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
     button { padding: 10px 14px; border: 0; border-radius: 8px; cursor: pointer; }
-    .add button { background: #222; color: white; }
+    .add button, .filters button { background: #222; color: white; }
     ul { list-style: none; padding: 0; margin: 0; }
     li { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #eee; flex-wrap: wrap; }
     li:last-child { border-bottom: 0; }
@@ -41,7 +43,15 @@
     <input name="title" placeholder="Например: купить молоко" maxlength="200" required autofocus>
     <button type="submit">Добавить</button>
   </form>
-
+  <form class="filters" method="get" action="{{ url_for('index') }}">
+    <input name="q" value="{{ search }}" placeholder="Поиск по задачам">
+    <select name="status">
+      <option value="all" {{ 'selected' if status == 'all' else '' }}>Все</option>
+      <option value="active" {{ 'selected' if status == 'active' else '' }}>Активные</option>
+      <option value="done" {{ 'selected' if status == 'done' else '' }}>Выполненные</option>
+    </select>
+    <button type="submit">Применить</button>
+  </form>
   {% if tasks %}
   <ul>
     {% for task in tasks %}
@@ -65,7 +75,7 @@
     {% endfor %}
   </ul>
   {% else %}
-    <div class="empty">Задач пока нет. Добавь первую 👆</div>
+    <div class="empty">По этому фильтру задач нет.</div>
   {% endif %}
 </main>
 </body>
