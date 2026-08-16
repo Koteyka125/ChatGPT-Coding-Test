@@ -1,4 +1,5 @@
 import os
+import secrets
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
@@ -8,6 +9,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "test-secret-key")
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production",
+)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -53,6 +59,20 @@ def init_db():
 init_db()
 
 
+@app.before_request
+def ensure_csrf_token():
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_urlsafe(32)
+
+
+def validate_csrf():
+    token = request.form.get("csrf_token", "")
+    expected = session.get("csrf_token")
+    if not expected or not secrets.compare_digest(token, expected):
+        return False
+    return True
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -81,6 +101,8 @@ def index():
 def register():
     error = None
     if request.method == "POST":
+        if not validate_csrf():
+            return "Invalid CSRF token", 400
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         if not username or not password:
@@ -107,6 +129,8 @@ def register():
 def login():
     error = None
     if request.method == "POST":
+        if not validate_csrf():
+            return "Invalid CSRF token", 400
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         with Session(engine) as db:
@@ -114,7 +138,9 @@ def login():
         if user is None or not check_password_hash(user.password_hash, password):
             error = "Неверное имя пользователя или пароль."
         else:
+            csrf_token = session.get("csrf_token")
             session.clear()
+            session["csrf_token"] = csrf_token or secrets.token_urlsafe(32)
             session["user_id"] = user.id
             session["username"] = user.username
             return redirect(url_for("index"))
@@ -123,6 +149,8 @@ def login():
 
 @app.post("/logout")
 def logout():
+    if not validate_csrf():
+        return "Invalid CSRF token", 400
     session.clear()
     return redirect(url_for("login"))
 
@@ -130,6 +158,8 @@ def logout():
 @app.post("/tasks")
 @login_required
 def create_task():
+    if not validate_csrf():
+        return "Invalid CSRF token", 400
     title = request.form.get("title", "").strip()
     if not title:
         return redirect(url_for("index"))
@@ -142,6 +172,8 @@ def create_task():
 @app.post("/tasks/<int:task_id>/toggle")
 @login_required
 def toggle_task(task_id):
+    if not validate_csrf():
+        return "Invalid CSRF token", 400
     with Session(engine) as db:
         task = db.scalar(select(Task).where(Task.id == task_id, Task.user_id == current_user_id()))
         if task is not None:
@@ -153,6 +185,8 @@ def toggle_task(task_id):
 @app.post("/tasks/<int:task_id>/delete")
 @login_required
 def delete_task(task_id):
+    if not validate_csrf():
+        return "Invalid CSRF token", 400
     with Session(engine) as db:
         task = db.scalar(select(Task).where(Task.id == task_id, Task.user_id == current_user_id()))
         if task is not None:
