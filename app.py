@@ -1,9 +1,13 @@
 import os
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from functools import wraps
+
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import Boolean, Integer, String, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "test-secret-key")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -18,6 +22,14 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 class Base(DeclarativeBase):
     pass
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
 class Task(Base):
@@ -35,14 +47,76 @@ def init_db():
 init_db()
 
 
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 @app.get("/")
+@login_required
 def index():
     with Session(engine) as db:
         tasks = db.scalars(select(Task).order_by(Task.id.desc())).all()
-    return render_template("index.html", tasks=tasks)
+    return render_template("index.html", tasks=tasks, username=session.get("username"))
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        if not username or not password:
+            error = "Введите имя пользователя и пароль."
+        elif len(username) > 80:
+            error = "Имя пользователя слишком длинное."
+        else:
+            with Session(engine) as db:
+                existing = db.scalar(select(User).where(User.username == username))
+                if existing is not None:
+                    error = "Такой пользователь уже существует."
+                else:
+                    user = User(
+                        username=username,
+                        password_hash=generate_password_hash(password),
+                    )
+                    db.add(user)
+                    db.commit()
+                    return redirect(url_for("login"))
+    return render_template("register.html", error=error)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        with Session(engine) as db:
+            user = db.scalar(select(User).where(User.username == username))
+        if user is None or not check_password_hash(user.password_hash, password):
+            error = "Неверное имя пользователя или пароль."
+        else:
+            session.clear()
+            session["user_id"] = user.id
+            session["username"] = user.username
+            return redirect(url_for("index"))
+    return render_template("login.html", error=error)
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.post("/tasks")
+@login_required
 def create_task():
     title = request.form.get("title", "").strip()
     if not title:
@@ -54,6 +128,7 @@ def create_task():
 
 
 @app.post("/tasks/<int:task_id>/toggle")
+@login_required
 def toggle_task(task_id):
     with Session(engine) as db:
         task = db.get(Task, task_id)
@@ -64,6 +139,7 @@ def toggle_task(task_id):
 
 
 @app.post("/tasks/<int:task_id>/delete")
+@login_required
 def delete_task(task_id):
     with Session(engine) as db:
         task = db.get(Task, task_id)
@@ -74,6 +150,7 @@ def delete_task(task_id):
 
 
 @app.get("/count")
+@login_required
 def counter():
     with Session(engine) as db:
         count = db.scalar(select(func.count()).select_from(Task))
