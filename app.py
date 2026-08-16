@@ -92,11 +92,28 @@ def user_task(db: Session, task_id: int):
 @app.get("/")
 @login_required
 def index():
+    search = request.args.get("q", "").strip()
+    status = request.args.get("status", "all").strip().lower()
+    if status not in {"all", "active", "done"}:
+        status = "all"
+
     with Session(engine) as db:
-        tasks = db.scalars(
-            select(Task).where(Task.user_id == current_user_id()).order_by(Task.id.desc())
-        ).all()
-    return render_template("index.html", tasks=tasks, username=session.get("username"))
+        query = select(Task).where(Task.user_id == current_user_id())
+        if search:
+            query = query.where(Task.title.ilike(f"%{search}%"))
+        if status == "active":
+            query = query.where(Task.done.is_(False))
+        elif status == "done":
+            query = query.where(Task.done.is_(True))
+        tasks = db.scalars(query.order_by(Task.id.desc())).all()
+
+    return render_template(
+        "index.html",
+        tasks=tasks,
+        username=session.get("username"),
+        search=search,
+        status=status,
+    )
 
 
 @app.route("/register", methods=["GET", "POST"])
