@@ -5,78 +5,123 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Мои задачи</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 48px auto; padding: 0 20px; background: #f6f7f9; color: #222; }
+    body { font-family: system-ui, sans-serif; max-width: 980px; margin: 32px auto; padding: 0 20px; background: #f6f7f9; color: #222; }
     main { background: white; padding: 28px; border-radius: 16px; box-shadow: 0 4px 24px #00000012; }
     header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
     h1 { margin-top: 0; }
-    form.add, form.filters { display: flex; gap: 8px; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; }
+    .panel { border: 1px solid #eee; border-radius: 12px; padding: 16px; }
+    form.add, form.filters, form.inline { display: flex; gap: 8px; margin-bottom: 16px; }
     form.filters { align-items: center; flex-wrap: wrap; }
-    input { flex: 1; padding: 11px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
-    select { padding: 11px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
+    input, select { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
     button { padding: 10px 14px; border: 0; border-radius: 8px; cursor: pointer; }
-    .add button, .filters button { background: #222; color: white; }
+    .primary { background: #222; color: white; }
     ul { list-style: none; padding: 0; margin: 0; }
     li { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #eee; flex-wrap: wrap; }
     li:last-child { border-bottom: 0; }
     .title { flex: 1; min-width: 180px; }
     .done .title { text-decoration: line-through; opacity: .5; }
     .actions { display: flex; gap: 6px; }
-    .edit-form { flex: 1 1 100%; display: none; gap: 8px; }
-    .edit-form.visible { display: flex; }
-    .empty { color: #777; text-align: center; padding: 24px 0; }
+    .muted, .empty { color: #777; }
+    .project.active { font-weight: 700; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #eee; font-size: 12px; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>Мои задачи</h1>
+    <div>
+      <h1>Мои задачи</h1>
+      {% if selected_project %}<div class="muted">Проект: <strong>{{ selected_project.name }}</strong></div>{% endif %}
+    </div>
     <div>
       <span>{{ username }}</span>
+      {% if pending_invites %}
+        <a href="{{ url_for('invitations') }}">Приглашения ({{ pending_invites }})</a>
+      {% endif %}
       <form method="post" action="{{ url_for('logout') }}" style="display:inline">
         <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
         <button type="submit">Выйти</button>
       </form>
     </div>
   </header>
-  <form class="add" method="post" action="{{ url_for('create_task') }}">
-    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-    <input name="title" placeholder="Например: купить молоко" maxlength="200" required autofocus>
-    <button type="submit">Добавить</button>
-  </form>
-  <form class="filters" method="get" action="{{ url_for('index') }}">
-    <input name="q" value="{{ search }}" placeholder="Поиск по задачам">
-    <select name="status">
-      <option value="all" {{ 'selected' if status == 'all' else '' }}>Все</option>
-      <option value="active" {{ 'selected' if status == 'active' else '' }}>Активные</option>
-      <option value="done" {{ 'selected' if status == 'done' else '' }}>Выполненные</option>
-    </select>
-    <button type="submit">Применить</button>
-  </form>
-  {% if tasks %}
-  <ul>
-    {% for task in tasks %}
-    <li class="{{ 'done' if task.done else '' }}">
-      <form method="post" action="{{ url_for('toggle_task', task_id=task.id) }}">
+
+  <div class="grid">
+    <aside class="panel">
+      <h2>Проекты</h2>
+      <ul>
+        {% for project in projects %}
+        <li class="project {% if selected_project and project.id == selected_project.id %}active{% endif %}">
+          <form method="post" action="{{ url_for('select_project', project_id=project.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+            <button type="submit">{{ project.name }}</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <form method="post" action="{{ url_for('create_project') }}">
         <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-        <button type="submit" aria-label="Изменить статус">{{ '☑' if task.done else '☐' }}</button>
+        <input name="name" placeholder="Название проекта" maxlength="120" required>
+        <button class="primary" type="submit">Создать</button>
       </form>
-      <span class="title">{{ task.title }}</span>
-      <button type="button" onclick="document.getElementById('edit-{{ task.id }}').classList.toggle('visible')">Изменить</button>
-      <form class="actions" method="post" action="{{ url_for('delete_task', task_id=task.id) }}">
+
+      {% if selected_project %}
+      <h3>Пригласить</h3>
+      <form method="post" action="{{ url_for('invite_to_project', project_id=selected_project.id) }}">
         <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-        <button type="submit" aria-label="Удалить задачу">Удалить</button>
+        <input name="username" placeholder="Имя пользователя" maxlength="80" required>
+        <button type="submit">Отправить</button>
       </form>
-      <form class="edit-form" id="edit-{{ task.id }}" method="post" action="{{ url_for('edit_task', task_id=task.id) }}">
+      <p class="muted">Владелец проекта может отправлять приглашения другим пользователям.</p>
+      {% endif %}
+    </aside>
+
+    <section class="panel">
+      <form class="add" method="post" action="{{ url_for('create_task') }}">
         <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-        <input name="title" value="{{ task.title }}" maxlength="500" required aria-label="Новое название задачи">
-        <button type="submit">Сохранить</button>
+        <input name="title" placeholder="Например: купить молоко" maxlength="200" required autofocus>
+        <button class="primary" type="submit">Добавить</button>
       </form>
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-    <div class="empty">По этому фильтру задач нет.</div>
-  {% endif %}
+
+      <form class="filters" method="get" action="{{ url_for('index') }}">
+        <input name="q" value="{{ search }}" placeholder="Поиск по задачам">
+        <select name="status">
+          <option value="all" {{ 'selected' if status == 'all' else '' }}>Все</option>
+          <option value="active" {{ 'selected' if status == 'active' else '' }}>Активные</option>
+          <option value="done" {{ 'selected' if status == 'done' else '' }}>Выполненные</option>
+        </select>
+        <button type="submit">Применить</button>
+      </form>
+
+      {% if tasks %}
+      <ul>
+        {% for task in tasks %}
+        <li class="{{ 'done' if task.done else '' }}">
+          <form method="post" action="{{ url_for('toggle_task', task_id=task.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+            <button type="submit" aria-label="Изменить статус">{{ '☑' if task.done else '☐' }}</button>
+          </form>
+          <span class="title">{{ task.title }}</span>
+          <button type="button" onclick="document.getElementById('edit-{{ task.id }}').hidden = !document.getElementById('edit-{{ task.id }}').hidden">Изменить</button>
+          <form id="edit-{{ task.id }}" method="post" action="{{ url_for('edit_task', task_id=task.id) }}" hidden>
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+            <input name="title" value="{{ task.title }}" maxlength="500" required aria-label="Новое название задачи">
+            <button type="submit">Сохранить</button>
+          </form>
+          <form class="actions" method="post" action="{{ url_for('delete_task', task_id=task.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+            <button type="submit" aria-label="Удалить задачу">Удалить</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+        <div class="empty">В этом проекте по текущему фильтру задач нет.</div>
+      {% endif %}
+    </section>
+  </div>
 </main>
 </body>
 </html>
