@@ -29,11 +29,13 @@
     <div>
       <span>{{ username }}</span>
       <form method="post" action="{{ url_for('logout') }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
         <button type="submit">Выйти</button>
       </form>
     </div>
   </header>
   <form class="add" method="post" action="{{ url_for('create_task') }}">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
     <input name="title" placeholder="Например: купить молоко" maxlength="200" required autofocus>
     <button type="submit">Добавить</button>
   </form>
@@ -43,10 +45,12 @@
     {% for task in tasks %}
     <li class="{{ 'done' if task.done else '' }}">
       <form method="post" action="{{ url_for('toggle_task', task_id=task.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
         <button type="submit" aria-label="Изменить статус">{{ '☑' if task.done else '☐' }}</button>
       </form>
       <span class="title">{{ task.title }}</span>
       <form class="actions" method="post" action="{{ url_for('delete_task', task_id=task.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
         <button type="submit" aria-label="Удалить задачу">Удалить</button>
       </form>
     </li>
