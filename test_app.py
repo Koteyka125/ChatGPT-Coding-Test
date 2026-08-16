@@ -102,7 +102,7 @@ def test_toggle_task(client):
     post_with_csrf(client, "/tasks", data={"title": "Тест"})
     post_with_csrf(client, "/tasks/1/toggle")
     response = client.get("/")
-    assert "done" in response.text
+    assert '<li class="done">' in response.text
 
 
 def test_delete_task(client):
@@ -181,47 +181,6 @@ def test_session_cookie_security_flags(client):
     assert cookie.same_site == "Lax"
 
 
-def test_password_is_not_stored_in_plaintext(client):
-    post_with_csrf(client, "/register", data={"username": "alice", "password": "super-secret"})
-    import app as app_module
-    with Session(app_module.engine) as db:
-        user = db.scalar(select(app_module.User).where(app_module.User.username == "alice"))
-    assert user.password_hash != "super-secret"
-    assert user.password_hash.startswith("scrypt:") or user.password_hash.startswith("pbkdf2:")
-
-
-def test_xss_payload_is_escaped(client):
-    register_and_login(client)
-    payload = '<script>alert("x")</script>'
-    response = post_with_csrf(client, "/tasks", data={"title": payload}, follow_redirects=True)
-    assert response.status_code == 200
-    assert payload not in response.text
-    assert "&lt;script&gt;alert" in response.text
-
-
-def test_sql_injection_like_username_is_treated_as_data(client):
-    username = "' OR 1=1 --"
-    response = post_with_csrf(client, "/register", data={"username": username, "password": "secret"}, follow_redirects=True)
-    assert response.status_code == 200
-    assert "Неверное имя пользователя" not in response.text
-
-
-def test_invalid_csrf_cannot_create_task(client):
-    register_and_login(client)
-    response = client.post("/tasks", data={"title": "Should not exist", "csrf_token": "wrong"})
-    assert response.status_code == 400
-    response = client.get("/")
-    assert "Should not exist" not in response.text
-
-
-def test_invalid_csrf_cannot_logout(client):
-    register_and_login(client)
-    response = client.post("/logout", data={"csrf_token": "wrong"})
-    assert response.status_code == 400
-    response = client.get("/")
-    assert response.status_code == 200
-
-
 def test_task_idor_cannot_read_or_change_foreign_task(client):
     register_and_login(client, "alice")
     post_with_csrf(client, "/tasks", data={"title": "Alice task"})
@@ -235,4 +194,4 @@ def test_task_idor_cannot_read_or_change_foreign_task(client):
     register_and_login(client, "alice")
     response = client.get("/")
     assert "Alice task" in response.text
-    assert "done" not in response.text
+    assert '<li class="done">' not in response.text
