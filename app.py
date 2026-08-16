@@ -1,29 +1,31 @@
 import os
-import sqlite3
 from flask import Flask, jsonify, redirect, render_template, request, url_for
+from sqlalchemy import Boolean, Integer, String, create_engine, func, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 app = Flask(__name__)
 
-DATABASE = os.environ.get("DATABASE_PATH", "tasks.db")
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    DATABASE_URL = f"sqlite:///{os.environ.get('DATABASE_PATH', 'tasks.db')}"
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 
-def get_db():
-    db = sqlite3.connect(DATABASE)
-    db.row_factory = sqlite3.Row
-    return db
+class Base(DeclarativeBase):
+    pass
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 def init_db():
-    with get_db() as db:
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL CHECK(length(trim(title)) > 0),
-                done INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
+    Base.metadata.create_all(engine)
 
 
 init_db()
@@ -31,8 +33,8 @@ init_db()
 
 @app.get("/")
 def index():
-    with get_db() as db:
-        tasks = db.execute("SELECT id, title, done FROM tasks ORDER BY id DESC").fetchall()
+    with Session(engine) as db:
+        tasks = db.scalars(select(Task).order_by(Task.id.desc())).all()
     return render_template("index.html", tasks=tasks)
 
 
@@ -41,39 +43,43 @@ def create_task():
     title = request.form.get("title", "").strip()
     if not title:
         return redirect(url_for("index"))
-    with get_db() as db:
-        db.execute("INSERT INTO tasks (title) VALUES (?)", (title,))
+    with Session(engine) as db:
+        db.add(Task(title=title))
+        db.commit()
     return redirect(url_for("index"))
 
 
 @app.post("/tasks/<int:task_id>/toggle")
 def toggle_task(task_id):
-    with get_db() as db:
-        db.execute(
-            "UPDATE tasks SET done = CASE done WHEN 0 THEN 1 ELSE 0 END WHERE id = ?",
-            (task_id,),
-        )
+    with Session(engine) as db:
+        task = db.get(Task, task_id)
+        if task is not None:
+            task.done = not task.done
+            db.commit()
     return redirect(url_for("index"))
 
 
 @app.post("/tasks/<int:task_id>/delete")
 def delete_task(task_id):
-    with get_db() as db:
-        db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    with Session(engine) as db:
+        task = db.get(Task, task_id)
+        if task is not None:
+            db.delete(task)
+            db.commit()
     return redirect(url_for("index"))
 
 
 @app.get("/count")
 def counter():
-    with get_db() as db:
-        row = db.execute("SELECT COUNT(*) AS count FROM tasks").fetchone()
-    return jsonify(count=row["count"])
+    with Session(engine) as db:
+        count = db.scalar(select(func.count()).select_from(Task))
+    return jsonify(count=count)
 
 
 @app.get("/health")
 def health():
-    with get_db() as db:
-        db.execute("SELECT 1")
+    with engine.connect() as connection:
+        connection.execute(select(1))
     return jsonify(status="ok")
 
 
