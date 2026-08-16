@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Приглашения</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 48px auto; padding: 0 20px; background: #f6f7f9; color: #222; }
+    main { background: white; padding: 28px; border-radius: 16px; }
+    li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #eee; }
+    ul { list-style: none; padding: 0; }
+    button { padding: 10px 14px; border: 0; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Приглашения</h1>
+  {% if invitations %}
+  <ul>
+    {% for invite in invitations %}
+    <li>
+      <span>Проект: <strong>{{ projects[invite.project_id].name }}</strong></span>
+      <form method="post" action="{{ url_for('accept_invitation', token=invite.token) }}">
+        <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+        <button type="submit">Принять</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    <p>Новых приглашений нет.</p>
+  {% endif %}
+  <a href="{{ url_for('index') }}">← Вернуться к задачам</a>
+</main>
+</body>
+</html>
