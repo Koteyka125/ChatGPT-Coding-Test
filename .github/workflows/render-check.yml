@@ -23,4 +23,4 @@ jobs:
             -H "Accept: application/json" \
             "https://api.render.com/v1/services?limit=20")
           echo "Render API authentication succeeded."
-          echo "$response" | python -c 'import json,sys; data=json.load(sys.stdin); print("Services visible to this key:", len(data.get("services", [])))'
+          echo "$response" | python -c 'import json,sys; data=json.load(sys.stdin); print("Render API response type:", type(data).__name__); print("Services visible to this key:", len(data) if isinstance(data, list) else len(data.get("services", [])))'
