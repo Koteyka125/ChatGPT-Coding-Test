@@ -9,18 +9,58 @@ jobs:
   render-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check Render API access
+      - name: Inspect Render services and latest deploys
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
           set -euo pipefail
+
           if [ -z "${RENDER_API_KEY:-}" ]; then
             echo "RENDER_API_KEY is not configured"
             exit 1
           fi
-          response=$(curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+
+          auth_header="Authorization: Bearer ${RENDER_API_KEY}"
+          services=$(curl --fail-with-body --silent --show-error \
+            -H "$auth_header" \
             -H "Accept: application/json" \
             "https://api.render.com/v1/services?limit=20")
+
           echo "Render API authentication succeeded."
-          echo "$response" | python -c 'import json,sys; data=json.load(sys.stdin); print("Render API response type:", type(data).__name__); print("Services visible to this key:", len(data) if isinstance(data, list) else len(data.get("services", [])))'
+          echo "Services visible to this key:"
+          echo "$services" | python -c '
+import json, sys
+items = json.load(sys.stdin)
+for item in items if isinstance(items, list) else items.get("services", []):
+    service = item.get("service", item) if isinstance(item, dict) else {}
+    print(f"- {service.get(\"name\", \"<unnamed>\")} | id={service.get(\"id\", \"<unknown>\")} | type={service.get(\"type\", \"<unknown>\")}")
+'
+
+          service_id=$(echo "$services" | python -c '
+import json, sys
+items = json.load(sys.stdin)
+for item in items if isinstance(items, list) else items.get("services", []):
+    service = item.get("service", item) if isinstance(item, dict) else {}
+    if service.get("name") == "chatgpt-coding-test":
+        print(service["id"])
+        break
+else:
+    raise SystemExit("chatgpt-coding-test service was not found")
+')
+
+          echo ""
+          echo "Target service: $service_id"
+
+          deploys=$(curl --fail-with-body --silent --show-error \
+            -H "$auth_header" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/services/${service_id}/deploys?limit=5")
+
+          echo "Latest deploys:"
+          echo "$deploys" | python -c '
+import json, sys
+items = json.load(sys.stdin)
+for item in items if isinstance(items, list) else items.get("deploys", []):
+    deploy = item.get("deploy", item) if isinstance(item, dict) else {}
+    print(f"- id={deploy.get(\"id\", \"<unknown>\")} | status={deploy.get(\"status\", \"<unknown>\")} | commit={deploy.get(\"commit\", {}).get(\"id\", \"<unknown>\") if isinstance(deploy.get(\"commit\"), dict) else deploy.get(\"commit\", \"<unknown>\")}")
+'
