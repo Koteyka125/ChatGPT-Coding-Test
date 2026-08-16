@@ -105,6 +105,48 @@ def test_toggle_task(client):
     assert '<li class="done">' in response.text
 
 
+def test_edit_task(client):
+    register_and_login(client)
+    post_with_csrf(client, "/tasks", data={"title": "Старое название"})
+    response = post_with_csrf(
+        client,
+        "/tasks/1/edit",
+        data={"title": "Новое название"},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert "Новое название" in response.text
+    assert "Старое название" not in response.text
+
+
+def test_empty_edit_is_ignored(client):
+    register_and_login(client)
+    post_with_csrf(client, "/tasks", data={"title": "Оригинал"})
+    response = post_with_csrf(
+        client,
+        "/tasks/1/edit",
+        data={"title": "   "},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert "Оригинал" in response.text
+
+
+def test_edit_cannot_modify_another_users_task(client):
+    register_and_login(client, "alice")
+    post_with_csrf(client, "/tasks", data={"title": "Alice task"})
+    logout(client)
+
+    register_and_login(client, "bob")
+    post_with_csrf(client, "/tasks/1/edit", data={"title": "Bob renamed"})
+    logout(client)
+
+    register_and_login(client, "alice")
+    response = client.get("/")
+    assert "Alice task" in response.text
+    assert "Bob renamed" not in response.text
+
+
 def test_delete_task(client):
     register_and_login(client)
     post_with_csrf(client, "/tasks", data={"title": "Удалить"})
