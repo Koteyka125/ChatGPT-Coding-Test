@@ -87,9 +87,6 @@ def init_db():
         db.commit()
 
 
-init_db()
-
-
 @app.before_request
 def ensure_csrf_token():
     if "csrf_token" not in session:
@@ -474,3 +471,5 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
+init_db()
