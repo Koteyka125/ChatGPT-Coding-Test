@@ -1,5 +1,3 @@
-import sqlite3
-
 import pytest
 
 
@@ -32,7 +30,7 @@ def test_create_task(client):
 def test_empty_task_is_ignored(client):
     response = client.post("/tasks", data={"title": "   "}, follow_redirects=True)
     assert response.status_code == 200
-    assert "Купить молоко" not in response.text
+    assert '<span class="title">' not in response.text
 
 
 def test_toggle_task(client):
@@ -46,7 +44,7 @@ def test_delete_task(client):
     client.post("/tasks", data={"title": "Удалить"})
     client.post("/tasks/1/delete")
     response = client.get("/")
-    assert "Удалить" not in response.text
+    assert '<span class="title">Удалить</span>' not in response.text
 
 
 def test_count_is_number_of_tasks(client):
