@@ -9,75 +9,96 @@ jobs:
   render-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect Render service, deploys, and logs
+      - name: Wait for Render autodeploy and verify production
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_NAME: chatgpt-coding-test
+          APP_URL: https://chatgpt-coding-test.onrender.com
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          if [ -z "${RENDER_API_KEY:-}" ]; then
-            echo "RENDER_API_KEY is not configured"
-            exit 1
-          fi
-
           auth_header="Authorization: Bearer ${RENDER_API_KEY}"
-          services=$(curl --fail-with-body --silent --show-error \
+          echo "GitHub commit: ${EXPECTED_COMMIT}"
+          echo "Waiting for Render autodeploy of this commit..."
+
+          service_json=$(curl --fail-with-body --silent --show-error \
             -H "$auth_header" -H "Accept: application/json" \
             "https://api.render.com/v1/services?limit=20")
 
-          echo "Render API authentication succeeded."
-          service_id=$(echo "$services" | python -c '
+          service_id=$(echo "$service_json" | python -c '
 import json,sys
 items=json.load(sys.stdin)
 for item in items if isinstance(items,list) else items.get("services",[]):
     s=item.get("service",item) if isinstance(item,dict) else {}
     if s.get("name")=="chatgpt-coding-test":
         print(s["id"]); break
-else: raise SystemExit("chatgpt-coding-test service was not found")
+else: raise SystemExit("Target Render service not found")
 ')
-          echo "Target service: $service_id"
+          echo "Render service: ${service_id}"
 
-          deploys=$(curl --fail-with-body --silent --show-error \
-            -H "$auth_header" -H "Accept: application/json" \
-            "https://api.render.com/v1/services/${service_id}/deploys?limit=5")
+          found=""
+          for attempt in $(seq 1 18); do
+            deploys=$(curl --fail-with-body --silent --show-error \
+              -H "$auth_header" -H "Accept: application/json" \
+              "https://api.render.com/v1/services/${service_id}/deploys?limit=20")
 
-          echo "Latest deploys:"
-          echo "$deploys" | python -c '
-import json,sys
+            result=$(echo "$deploys" | EXPECTED_COMMIT="$EXPECTED_COMMIT" python -c '
+import json, os, sys
 items=json.load(sys.stdin)
-for item in items if isinstance(items,list) else items.get("deploys",[]):
+items=items if isinstance(items,list) else items.get("deploys",[])
+expected=os.environ["EXPECTED_COMMIT"]
+for item in items:
     d=item.get("deploy",item) if isinstance(item,dict) else {}
     c=d.get("commit")
     cid=c.get("id") if isinstance(c,dict) else c
-    print(f"- id={d.get(\"id\",\"<unknown>\")} | status={d.get(\"status\",\"<unknown>\")} | commit={cid or \"<unknown>\"}")
+    if cid==expected:
+        print(d.get("id", ""), d.get("status", ""))
+        break
 ')
 
-          latest_id=$(echo "$deploys" | python -c '
-import json,sys
-items=json.load(sys.stdin)
-items=items if isinstance(items,list) else items.get("deploys",[])
-for item in items:
-    d=item.get("deploy",item) if isinstance(item,dict) else {}
-    if d.get("id"):
-        print(d["id"]); break
-else: raise SystemExit("No deploy found")
-')
+            if [ -n "$result" ]; then
+              deploy_id=$(echo "$result" | awk '{print $1}')
+              status=$(echo "$result" | awk '{print $2}')
+              echo "Matching deploy: ${deploy_id} | status=${status}"
+              found="$result"
+              case "$status" in
+                live|succeeded|success)
+                  break
+                  ;;
+                failed|canceled|cancelled)
+                  echo "Render deploy failed. Recent deploys:"
+                  echo "$deploys"
+                  exit 1
+                  ;;
+              esac
+            else
+              echo "Attempt ${attempt}/18: deploy for this commit not visible yet"
+            fi
+            sleep 10
+          done
 
-          echo "Latest deploy ID: $latest_id"
-          echo "Fetching recent Render logs..."
+          if [ -z "$found" ]; then
+            echo "Timed out waiting for Render to deploy ${EXPECTED_COMMIT}"
+            exit 1
+          fi
 
-          logs=$(curl --fail-with-body --silent --show-error \
-            -G -H "$auth_header" -H "Accept: application/json" \
-            --data-urlencode "resource=${service_id}" \
-            --data-urlencode "limit=50" \
-            "https://api.render.com/v1/logs")
+          status=$(echo "$found" | awk '{print $2}')
+          if [ "$status" != "live" ] && [ "$status" != "succeeded" ] && [ "$status" != "success" ]; then
+            echo "Deploy did not reach a successful state: $status"
+            exit 1
+          fi
 
-          echo "Recent logs (last 50 records returned by Render):"
-          echo "$logs" | python -c '
+          echo "Render deploy succeeded. Running production smoke tests..."
+          root=$(curl --fail --silent --show-error --location "${APP_URL}/")
+          echo "GET / -> ${root}"
+          count=$(curl --fail --silent --show-error --location "${APP_URL}/count")
+          echo "GET /count -> ${count}"
+
+          echo "$count" | python -c '
 import json,sys
 x=json.load(sys.stdin)
-items=x if isinstance(x,list) else x.get("logs",x.get("items",[]))
-for item in items[-50:]:
-    if isinstance(item,dict): print(item.get("timestamp","") , item.get("message",item.get("text",str(item))))
-    else: print(item)
-' | tail -50
+assert "count" in x, f"Expected count key, got {x!r}"
+assert isinstance(x["count"], int), f"Expected integer count, got {x!r}"
+print("Production smoke test passed: /count contains integer count")
+'
