@@ -13,8 +13,7 @@ def hello():
 def counter():
     global count
     count += 1
-    # Intentional bug for our recovery test: the response uses the wrong key.
-    return {"total": count}
+    return {"count": count}
 
 
 if __name__ == "__main__":
